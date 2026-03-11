@@ -1,0 +1,57 @@
+DATA:
+  dataset: local_json
+  data_backend: json
+  data_root: ../dataset
+  train_file: ../dataset/train.json
+  train_split: train
+  val_file:
+  val_split:
+  test_file: ../dataset/test.json
+  test_split: test
+  caption_index: 2
+TRAIN:
+  # Base Arch
+  clip_pretrain: pretrain/RN50.pt
+  input_size: 416
+  word_len: 17
+  word_dim: 1024
+  vis_dim: 512
+  fpn_in: [512, 1024, 1024]
+  fpn_out: [256, 512, 1024]
+  sync_bn: True
+  # Decoder
+  num_layers: 3
+  num_head: 8
+  dim_ffn: 2048
+  dropout: 0.1
+  intermediate: False
+  # Training Setting
+  workers: 32
+  workers_val: 16
+  epochs: 50
+  milestones: [35]
+  start_epoch: 0
+  batch_size: 64
+  batch_size_val: 64
+  base_lr: 0.0001
+  lr_decay: 0.1
+  lr_multi: 0.1
+  weight_decay: 0.
+  max_norm: 0.
+  manual_seed: 0
+  print_freq: 100
+  # Resume & Save
+  exp_name: CRIS_R50_LOCAL_JSON
+  output_folder: exp/local_json
+  save_freq: 1
+  weight:
+  resume:
+  evaluate: False
+Distributed:
+  dist_url: tcp://localhost:3681
+  dist_backend: 'nccl'
+  multiprocessing_distributed: True
+  world_size: 1
+  rank: 0
+TEST:
+  visualize: False

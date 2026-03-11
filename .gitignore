@@ -1,0 +1,14 @@
+# Runtime artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local data and outputs
+dataset/
+datasets/
+exp/
+wandb/
+pretrain/
+
+# Editor files
+.vscode/
