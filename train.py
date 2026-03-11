@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 
 import utils.config as config
 import wandb
-from utils.dataset import RefDataset
+from utils.dataset import build_ref_dataset
 from engine.engine import train, validate
 from model import build_segmenter
 from utils.misc import (init_random_seed, set_random_seed, setup_logger,
@@ -109,26 +109,17 @@ def main_worker(gpu, args):
                             milestones=args.milestones,
                             gamma=args.lr_decay)
     scaler = amp.GradScaler()
+    use_val = bool(getattr(args, 'evaluate', True))
 
     # build dataset
     args.batch_size = int(args.batch_size / args.ngpus_per_node)
-    args.batch_size_val = int(args.batch_size_val / args.ngpus_per_node)
     args.workers = int(
         (args.workers + args.ngpus_per_node - 1) / args.ngpus_per_node)
-    train_data = RefDataset(lmdb_dir=args.train_lmdb,
-                            mask_dir=args.mask_root,
-                            dataset=args.dataset,
-                            split=args.train_split,
-                            mode='train',
-                            input_size=args.input_size,
-                            word_length=args.word_len)
-    val_data = RefDataset(lmdb_dir=args.val_lmdb,
-                          mask_dir=args.mask_root,
-                          dataset=args.dataset,
-                          split=args.val_split,
-                          mode='val',
-                          input_size=args.input_size,
-                          word_length=args.word_len)
+    train_data = build_ref_dataset(args, mode='train')
+    val_loader = None
+    if use_val:
+        args.batch_size_val = int(args.batch_size_val / args.ngpus_per_node)
+        val_data = build_ref_dataset(args, mode='val')
 
     # build dataloader
     init_fn = partial(worker_init_fn,
@@ -137,7 +128,6 @@ def main_worker(gpu, args):
                       seed=args.manual_seed)
     train_sampler = data.distributed.DistributedSampler(train_data,
                                                         shuffle=True)
-    val_sampler = data.distributed.DistributedSampler(val_data, shuffle=False)
     train_loader = data.DataLoader(train_data,
                                    batch_size=args.batch_size,
                                    shuffle=False,
@@ -146,15 +136,20 @@ def main_worker(gpu, args):
                                    worker_init_fn=init_fn,
                                    sampler=train_sampler,
                                    drop_last=True)
-    val_loader = data.DataLoader(val_data,
-                                 batch_size=args.batch_size_val,
-                                 shuffle=False,
-                                 num_workers=args.workers_val,
-                                 pin_memory=True,
-                                 sampler=val_sampler,
-                                 drop_last=False)
+    if use_val:
+        val_sampler = data.distributed.DistributedSampler(val_data,
+                                                          shuffle=False)
+        val_loader = data.DataLoader(val_data,
+                                     batch_size=args.batch_size_val,
+                                     shuffle=False,
+                                     num_workers=args.workers_val,
+                                     pin_memory=True,
+                                     sampler=val_sampler,
+                                     drop_last=False)
+    elif args.rank == 0:
+        logger.info('Validation is disabled for this run.')
 
-    best_IoU = 0.0
+    best_IoU = 0.0 if use_val else None
     # resume
     if args.resume:
         if os.path.isfile(args.resume):
@@ -162,7 +157,8 @@ def main_worker(gpu, args):
             checkpoint = torch.load(
                 args.resume, map_location=lambda storage: storage.cuda())
             args.start_epoch = checkpoint['epoch']
-            best_IoU = checkpoint["best_iou"]
+            if use_val:
+                best_IoU = checkpoint["best_iou"]
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             scheduler.load_state_dict(checkpoint['scheduler'])
@@ -186,24 +182,33 @@ def main_worker(gpu, args):
               args)
 
         # evaluation
-        iou, prec_dict = validate(val_loader, model, epoch_log, args)
+        iou = None
+        prec_dict = {}
+        if use_val:
+            iou, prec_dict = validate(val_loader, model, epoch_log, args)
 
         # save model
         if dist.get_rank() == 0:
+            is_best = False
+            if use_val and iou >= best_IoU:
+                best_IoU = iou
+                is_best = True
             lastname = os.path.join(args.output_dir, "last_model.pth")
             torch.save(
                 {
                     'epoch': epoch_log,
-                    'cur_iou': iou,
-                    'best_iou': best_IoU,
+                    'cur_iou': iou if iou is not None else -1.0,
+                    'best_iou': best_IoU if best_IoU is not None else -1.0,
                     'prec': prec_dict,
                     'state_dict': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict()
                 }, lastname)
-            if iou >= best_IoU:
-                best_IoU = iou
-                bestname = os.path.join(args.output_dir, "best_model.pth")
+            bestname = os.path.join(args.output_dir, "best_model.pth")
+            if use_val:
+                if is_best:
+                    shutil.copyfile(lastname, bestname)
+            else:
                 shutil.copyfile(lastname, bestname)
 
         # update lr
@@ -214,7 +219,10 @@ def main_worker(gpu, args):
     if dist.get_rank() == 0:
         wandb.finish()
 
-    logger.info("* Best IoU={} * ".format(best_IoU))
+    if use_val:
+        logger.info("* Best IoU={} * ".format(best_IoU))
+    else:
+        logger.info('* Validation disabled during training. *')
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('* Training time {} *'.format(total_time_str))

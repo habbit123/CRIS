@@ -8,3 +8,6 @@ pycocotools
 matplotlib
 tqdm
 pickle5
+numpy
+pyyaml
+opencv-python

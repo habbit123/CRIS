@@ -76,6 +76,77 @@ CUDA_VISIBLE_DEVICES=0 python -u test.py \
              TEST.test_lmdb datasets/lmdb/refcocog_g/val.lmdb
 ```
 
+## Local dataset adaptation (train/test only)
+
+This repository now supports a local JSON dataset layout with train/test splits only.
+
+Expected local dataset layout:
+
+```none
+CRIS/
+  ../dataset/
+    train.json
+    test.json
+    train/
+      img/
+      lbl/
+    test/
+      img/
+      lbl/
+```
+
+A sample annotation item looks like:
+
+```json
+{
+  "id": "apple_black_rot_1",
+  "image": "train/img/apple_black_rot_1.jpg",
+  "mask": "train/lbl/apple_black_rot_1.png",
+  "caption": [
+    "the abnormal region",
+    "the apple black rot lesion",
+    "the circular, sunken lesions with reddish-brown centers and a distinct purple halo on the surface of the apple fruit"
+  ]
+}
+```
+
+Notes:
+- The local config is `config/local/cris_r50_local.yaml` and uses `DATA.data_backend: json`.
+- `DATA.caption_index` controls which caption is used for both training and testing. The default is `2`, which means `caption[2]`.
+- `train.py` skips validation when `TRAIN.evaluate: False`. In that mode, each epoch still writes `last_model.pth` and mirrors it to `best_model.pth`, so `test.py` can run unchanged.
+- Image and mask paths in JSON can be relative to `DATA.data_root` or absolute paths.
+- Pretrained CLIP weights are still external assets and should be placed under `pretrain/` as referenced by the config.
+
+Linux setup command:
+
+```bash
+PYTHON_VERSION=3.10 TORCH_INSTALL_CMD="python -m pip install torch torchvision" bash scripts/setup_linux.sh
+```
+
+Lightweight local dataset check:
+
+```bash
+python scripts/check_local_dataset.py --data-root ../dataset --train-file ../dataset/train.json --test-file ../dataset/test.json --caption-index 2
+```
+
+Linux training command:
+
+```bash
+python -u train.py --config config/local/cris_r50_local.yaml
+```
+
+Linux test command:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -u test.py --config config/local/cris_r50_local.yaml
+```
+
+If your local dataset paths differ from this layout, override them with `--opts`, for example:
+
+```bash
+python -u train.py --config config/local/cris_r50_local.yaml   --opts DATA.data_root /path/to/dataset          DATA.train_file /path/to/dataset/train.json          DATA.test_file /path/to/dataset/test.json          DATA.caption_index 1
+```
+
 ## License
 
 This project is under the MIT license. See [LICENSE](LICENSE) for details.
