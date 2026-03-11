@@ -68,7 +68,8 @@ def loads_pyarrow(buf):
 
 class BaseRefDataset(Dataset):
     def __init__(self, dataset, split, mode, input_size, word_length,
-                 caption_index=2):
+                 caption_index=2, mask_binarize=False,
+                 mask_positive_threshold=0):
         super(BaseRefDataset, self).__init__()
         self.dataset = dataset
         self.split = split
@@ -76,6 +77,8 @@ class BaseRefDataset(Dataset):
         self.input_size = (input_size, input_size)
         self.word_length = word_length
         self.caption_index = caption_index
+        self.mask_binarize = mask_binarize
+        self.mask_positive_threshold = mask_positive_threshold
         self.mean = torch.tensor([0.48145466, 0.4578275,
                                   0.40821073]).reshape(3, 1, 1)
         self.std = torch.tensor([0.26862954, 0.26130258,
@@ -119,6 +122,11 @@ class BaseRefDataset(Dataset):
                 .format(self.caption_index, sample_id, len(captions)))
         return captions[self.caption_index]
 
+    def _normalize_mask(self, mask):
+        if self.mask_binarize:
+            return (mask > self.mask_positive_threshold).astype(np.float32)
+        return mask.astype(np.float32) / 255.
+
 
 class RefDataset(BaseRefDataset):
     def __init__(self, lmdb_dir, mask_dir, dataset, split, mode, input_size,
@@ -128,7 +136,9 @@ class RefDataset(BaseRefDataset):
                                          mode=mode,
                                          input_size=input_size,
                                          word_length=word_length,
-                                         caption_index=0)
+                                         caption_index=0,
+                                         mask_binarize=False,
+                                         mask_positive_threshold=0)
         self.lmdb_dir = lmdb_dir
         self.mask_dir = mask_dir
         self.length = self._load_length()
@@ -190,7 +200,7 @@ class RefDataset(BaseRefDataset):
                                   self.input_size,
                                   flags=cv2.INTER_LINEAR,
                                   borderValue=0.)
-            mask = mask / 255.
+            mask = self._normalize_mask(mask)
             sent = sents[idx]
             word_vec = tokenize(sent, self.word_length, True).squeeze(0)
             img, mask = self.convert(img, mask)
@@ -223,13 +233,16 @@ class RefDataset(BaseRefDataset):
 
 class JsonRefDataset(BaseRefDataset):
     def __init__(self, data_root, json_file, dataset, split, mode,
-                 input_size, word_length, caption_index=2):
+                 input_size, word_length, caption_index=2,
+                 mask_binarize=False, mask_positive_threshold=0):
         super(JsonRefDataset, self).__init__(dataset=dataset,
                                              split=split,
                                              mode=mode,
                                              input_size=input_size,
                                              word_length=word_length,
-                                             caption_index=caption_index)
+                                             caption_index=caption_index,
+                                             mask_binarize=mask_binarize,
+                                             mask_positive_threshold=mask_positive_threshold)
         self.data_root = data_root
         self.json_file = json_file
         if not os.path.exists(self.json_file):
@@ -283,7 +296,7 @@ class JsonRefDataset(BaseRefDataset):
                                   self.input_size,
                                   flags=cv2.INTER_LINEAR,
                                   borderValue=0.)
-            mask = mask / 255.
+            mask = self._normalize_mask(mask)
             word_vec = tokenize(sent, self.word_length, True).squeeze(0)
             img, mask = self.convert(img, mask)
             return img, word_vec, mask
@@ -323,6 +336,8 @@ def build_ref_dataset(args, mode):
         split = getattr(args, '{}_split'.format(mode), mode)
         data_root = getattr(args, 'data_root', '')
         caption_index = int(getattr(args, 'caption_index', 2))
+        mask_binarize = bool(getattr(args, 'mask_binarize', False))
+        mask_positive_threshold = int(getattr(args, 'mask_positive_threshold', 0))
         return JsonRefDataset(data_root=data_root,
                               json_file=getattr(args, json_attr),
                               dataset=args.dataset,
@@ -330,7 +345,9 @@ def build_ref_dataset(args, mode):
                               mode=mode,
                               input_size=args.input_size,
                               word_length=args.word_len,
-                              caption_index=caption_index)
+                              caption_index=caption_index,
+                              mask_binarize=mask_binarize,
+                              mask_positive_threshold=mask_positive_threshold)
     if data_backend != 'lmdb':
         raise ValueError('Unsupported data backend: {}'.format(data_backend))
 
