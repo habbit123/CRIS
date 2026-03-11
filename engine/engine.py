@@ -33,6 +33,7 @@ def train(train_loader, model, optimizer, scheduler, scaler, epoch, args):
     # size_list = [320, 352, 384, 416, 448, 480, 512]
     # idx = np.random.choice(len(size_list))
     # new_size = size_list[idx]
+    use_wandb = bool(getattr(args, 'wandb', False)) and wandb.run is not None
 
     for i, (image, text, target) in enumerate(train_loader):
         data_time.update(time.time() - end)
@@ -74,7 +75,7 @@ def train(train_loader, model, optimizer, scheduler, scaler, epoch, args):
 
         if (i + 1) % args.print_freq == 0:
             progress.display(i + 1)
-            if dist.get_rank() in [-1, 0]:
+            if dist.get_rank() in [-1, 0] and use_wandb:
                 wandb.log(
                     {
                         "time/batch": batch_time.val,
