@@ -31,6 +31,15 @@ warnings.filterwarnings("ignore")
 cv2.setNumThreads(0)
 
 
+def _build_wandb_tags(args):
+    tags = getattr(args, 'wandb_tags', None)
+    if tags in [None, '']:
+        return [args.dataset]
+    if isinstance(tags, (list, tuple)):
+        return list(tags)
+    return [str(tags)]
+
+
 def get_parser():
     parser = argparse.ArgumentParser(
         description='Pytorch Referring Expression Segmentation')
@@ -83,23 +92,29 @@ def main_worker(gpu, args):
                             rank=args.rank)
 
     # wandb
-    if args.rank == 0:
+    use_wandb = bool(getattr(args, 'wandb', False))
+    if args.rank == 0 and use_wandb:
         wandb.init(job_type="training",
-                   mode="online",
-                   config=args,
-                   project="CRIS",
+                   mode=getattr(args, 'wandb_mode', 'disabled'),
+                   config=dict(args),
+                   project=getattr(args, 'wandb_project', 'CRIS'),
                    name=args.exp_name,
-                   tags=[args.dataset, args.clip_pretrain])
+                   tags=_build_wandb_tags(args))
     dist.barrier()
 
     # build model
     model, param_list = build_segmenter(args)
-    if args.sync_bn:
+    use_sync_bn = bool(args.sync_bn and args.ngpus_per_node > 1)
+    if args.sync_bn and not use_sync_bn and args.rank == 0:
+        logger.info('SyncBatchNorm is disabled because only one GPU is available.')
+    if use_sync_bn:
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     logger.info(model)
-    model = nn.parallel.DistributedDataParallel(model.cuda(),
-                                                device_ids=[args.gpu],
-                                                find_unused_parameters=True)
+    model = nn.parallel.DistributedDataParallel(
+        model.cuda(),
+        device_ids=[args.gpu],
+        output_device=args.gpu,
+        find_unused_parameters=bool(getattr(args, 'find_unused_parameters', True)))
 
     # build optimizer & lr scheduler
     optimizer = torch.optim.Adam(param_list,
@@ -216,7 +231,7 @@ def main_worker(gpu, args):
         torch.cuda.empty_cache()
 
     time.sleep(2)
-    if dist.get_rank() == 0:
+    if dist.get_rank() == 0 and use_wandb:
         wandb.finish()
 
     if use_val:

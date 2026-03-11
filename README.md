@@ -113,7 +113,9 @@ A sample annotation item looks like:
 Notes:
 - The local config is `config/local/cris_r50_local.yaml` and uses `DATA.data_backend: json`.
 - `DATA.caption_index` controls which caption is used for both training and testing. The default is `2`, which means `caption[2]`.
+- `DATA.mask_binarize: True` converts local grayscale masks to binary masks during training. With your current dataset, all pixels with value `> 0` are treated as foreground.
 - `train.py` skips validation when `TRAIN.evaluate: False`. In that mode, each epoch still writes `last_model.pth` and mirrors it to `best_model.pth`, so `test.py` can run unchanged.
+- The local config disables `wandb` by default and sets `sync_bn: False`, which is the safer default for a remote single-GPU server.
 - Image and mask paths in JSON can be relative to `DATA.data_root` or absolute paths.
 - Pretrained CLIP weights are still external assets and should be placed under `pretrain/` as referenced by the config.
 

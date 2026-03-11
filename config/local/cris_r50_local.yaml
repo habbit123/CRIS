@@ -9,6 +9,8 @@ DATA:
   test_file: ../dataset/test.json
   test_split: test
   caption_index: 2
+  mask_binarize: True
+  mask_positive_threshold: 0
 TRAIN:
   # Base Arch
   clip_pretrain: pretrain/RN50.pt
@@ -18,7 +20,7 @@ TRAIN:
   vis_dim: 512
   fpn_in: [512, 1024, 1024]
   fpn_out: [256, 512, 1024]
-  sync_bn: True
+  sync_bn: False
   # Decoder
   num_layers: 3
   num_head: 8
@@ -40,6 +42,11 @@ TRAIN:
   max_norm: 0.
   manual_seed: 0
   print_freq: 100
+  find_unused_parameters: True
+  wandb: False
+  wandb_mode: disabled
+  wandb_project: CRIS
+  wandb_tags: [local_json]
   # Resume & Save
   exp_name: CRIS_R50_LOCAL_JSON
   output_folder: exp/local_json
