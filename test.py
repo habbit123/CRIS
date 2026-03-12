@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import warnings
 
@@ -16,6 +17,15 @@ from utils.misc import setup_logger
 
 warnings.filterwarnings("ignore")
 cv2.setNumThreads(0)
+
+
+def _resolve_checkpoint(args):
+    checkpoint = getattr(args, 'checkpoint', None)
+    if checkpoint:
+        if os.path.isabs(checkpoint) or os.path.exists(checkpoint):
+            return checkpoint
+        return os.path.join(args.output_dir, checkpoint)
+    return os.path.join(args.output_dir, 'best_model.pth')
 
 
 def get_parser():
@@ -42,17 +52,15 @@ def main():
     args = get_parser()
     args.output_dir = os.path.join(args.output_folder, args.exp_name)
     if args.visualize:
-        args.vis_dir = os.path.join(args.output_dir, "vis")
+        args.vis_dir = os.path.join(args.output_dir, 'vis')
         os.makedirs(args.vis_dir, exist_ok=True)
 
-    # logger
     setup_logger(args.output_dir,
                  distributed_rank=0,
-                 filename="test.log",
-                 mode="a")
+                 filename='test.log',
+                 mode='a')
     logger.info(args)
 
-    # build dataset & dataloader
     test_data = build_ref_dataset(args, mode='test')
     test_loader = torch.utils.data.DataLoader(test_data,
                                               batch_size=1,
@@ -60,24 +68,26 @@ def main():
                                               num_workers=1,
                                               pin_memory=True)
 
-    # build model
     model, _ = build_segmenter(args)
     model = torch.nn.DataParallel(model).cuda()
     logger.info(model)
 
-    args.model_dir = os.path.join(args.output_dir, "best_model.pth")
+    args.model_dir = _resolve_checkpoint(args)
     if os.path.isfile(args.model_dir):
         logger.info("=> loading checkpoint '{}'".format(args.model_dir))
-        checkpoint = torch.load(args.model_dir)
+        checkpoint = torch.load(args.model_dir, map_location='cpu')
         model.load_state_dict(checkpoint['state_dict'], strict=True)
         logger.info("=> loaded checkpoint '{}'".format(args.model_dir))
     else:
         raise ValueError(
-            "=> resume failed! no checkpoint found at '{}'. Please check args.resume again!"
+            "=> resume failed! no checkpoint found at '{}'. Please check args.checkpoint again!"
             .format(args.model_dir))
 
-    # inference
-    inference(test_loader, model, args)
+    metrics = inference(test_loader, model, args)
+    metrics_path = os.path.join(args.output_dir, 'test_metrics.json')
+    with open(metrics_path, 'w', encoding='utf-8') as f:
+        json.dump(metrics, f, indent=2)
+    logger.info("=> metrics saved to '{}'".format(metrics_path))
 
 
 if __name__ == '__main__':
