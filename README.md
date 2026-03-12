@@ -114,7 +114,7 @@ Notes:
 - The local config is `config/local/cris_r50_local.yaml` and uses `DATA.data_backend: json`.
 - `DATA.caption_index` controls which caption is used for both training and testing. The default is `2`, which means `caption[2]`.
 - `DATA.mask_binarize: True` converts local grayscale masks to binary masks during training. With your current dataset, all pixels with value `> 0` are treated as foreground.
-- Test metrics now align with binary aggregated confusion over all valid pixels and report `IoU_bg`, `IoU_fg`, `mIoU`, `Acc_bg`, `Acc_fg`, and `mAcc`.
+- Test metrics now align with binary aggregated confusion over all valid pixels and report `IoU`, `Dice`, `Recall`, `mIoU`, and `mACC`.
 - `TEST.checkpoint` controls which checkpoint file is evaluated. The default is `best_model.pth` relative to the experiment output directory.
 - `train.py` skips validation when `TRAIN.evaluate: False`. In that mode, each epoch still writes `last_model.pth` and mirrors it to `best_model.pth`, so `test.py` can run unchanged.
 - The local config disables `wandb` by default and sets `sync_bn: False`, which is the safer default for a remote single-GPU server.

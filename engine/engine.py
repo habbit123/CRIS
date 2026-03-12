@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 
 import cv2
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.cuda.amp as amp
@@ -30,6 +31,13 @@ class Agg:
         self.fn_fg += other.fn_fg
         self.tn += other.tn
         self.valid_pixels += other.valid_pixels
+
+
+@dataclass
+class Counts:
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
 
 
 
@@ -76,6 +84,14 @@ def confusion_binary_fg(pred_bin: np.ndarray, gt_bin: np.ndarray,
 
 
 
+def counts_to_metrics(c: Counts):
+    iou = _safe_div(c.tp, c.tp + c.fp + c.fn)
+    dice = _safe_div(2 * c.tp, 2 * c.tp + c.fp + c.fn)
+    recall = _safe_div(c.tp, c.tp + c.fn)
+    return {'IoU': iou, 'Dice': dice, 'Recall': recall}
+
+
+
 def metrics_from_agg(agg: Agg):
     tp_fg, fp_fg, fn_fg, tn = agg.tp_fg, agg.fp_fg, agg.fn_fg, agg.tn
 
@@ -83,8 +99,9 @@ def metrics_from_agg(agg: Agg):
     fp_bg = fn_fg
     fn_bg = fp_fg
 
+    fg_metrics = counts_to_metrics(Counts(tp=tp_fg, fp=fp_fg, fn=fn_fg))
     iou_bg = _safe_div(tp_bg, tp_bg + fp_bg + fn_bg)
-    iou_fg = _safe_div(tp_fg, tp_fg + fp_fg + fn_fg)
+    iou_fg = fg_metrics['IoU']
 
     acc_bg = _safe_div(tp_bg, tp_bg + fn_bg)
     acc_fg = _safe_div(tp_fg, tp_fg + fn_fg)
@@ -93,13 +110,11 @@ def metrics_from_agg(agg: Agg):
     macc = 0.5 * (acc_bg + acc_fg)
 
     return {
-        'IoU_bg': iou_bg,
-        'IoU_fg': iou_fg,
+        'IoU': fg_metrics['IoU'],
+        'Dice': fg_metrics['Dice'],
+        'Recall': fg_metrics['Recall'],
         'mIoU': miou,
-        'Acc_bg': acc_bg,
-        'Acc_fg': acc_fg,
-        'mAcc': macc,
-        'valid_pixels': float(agg.valid_pixels),
+        'mACC': macc,
     }
 
 
@@ -121,15 +136,13 @@ def _reduce_agg(agg: Agg, device):
 
 def _format_metrics(metrics):
     return (
-        'IoU_bg={:.2f}  IoU_fg={:.2f}  mIoU={:.2f}  '
-        'Acc_bg={:.2f}  Acc_fg={:.2f}  mAcc={:.2f}  valid_pixels={:.0f}'
-    ).format(100. * metrics['IoU_bg'],
-             100. * metrics['IoU_fg'],
+        'IoU={:.2f}  Dice={:.2f}  Recall={:.2f}  '
+        'mIoU={:.2f}  mACC={:.2f}'
+    ).format(100. * metrics['IoU'],
+             100. * metrics['Dice'],
+             100. * metrics['Recall'],
              100. * metrics['mIoU'],
-             100. * metrics['Acc_bg'],
-             100. * metrics['Acc_fg'],
-             100. * metrics['mAcc'],
-             metrics['valid_pixels'])
+             100. * metrics['mACC'])
 
 
 
